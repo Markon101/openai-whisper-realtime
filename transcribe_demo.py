@@ -13,6 +13,34 @@ from tempfile import NamedTemporaryFile
 from time import sleep
 from sys import platform
 
+keyboard = Controller()
+previous_txt = [""]
+def keyboard_output(text, phrase_complete):
+    print("Text Before Processing: " + text +"\n\n")
+    global previous_txt
+    # Preprocess the text to remove leading and trailing spaces
+    text = text.strip()
+    index = 0
+    
+    # Find the index of the first character that is different between the new text and the previous text
+    while index < len(text) and index < len(previous_txt[-1]) and text[index] == previous_txt[-1][index]:
+            index += 1
+                
+    # Backtrack to delete only the changed words
+    if index > 0:
+        for i in range(len(previous_txt) - index):
+            keyboard.press(Key.backspace)
+            keyboard.release(Key.backspace)
+            sleep(0.05)
+    # Type out the new corrected text
+    print("Text: " + text + "\nIndex:" + str(index) + "\nPrevious Text: " + previous_txt[-1] + "\nlength_text: " + str(len(text)))
+    if index > 0:
+        keyboard.type(text[index:] + " ")
+    else:
+        keyboard.type(text + " ")
+    previous_txt.append(text)
+    return
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -22,9 +50,9 @@ def main():
                         help="Don't use the english model.")
     parser.add_argument("--energy_threshold", default=1000,
                         help="Energy level for mic to detect.", type=int)
-    parser.add_argument("--record_timeout", default=2,
+    parser.add_argument("--record_timeout", default=5,
                         help="How real time the recording is in seconds.", type=float)
-    parser.add_argument("--phrase_timeout", default=3,
+    parser.add_argument("--phrase_timeout", default=8,
                         help="How much empty space between recordings before we "
                              "consider it a new line in the transcription.", type=float)  
     if 'linux' in platform:
@@ -57,16 +85,16 @@ def main():
         else:
             for index, name in enumerate(sr.Microphone.list_microphone_names()):
                 if mic_name in name:
-                    source = sr.Microphone(sample_rate=16000, device_index=index)
+                    source = sr.Microphone(sample_rate=48000, device_index=index)
                     break
     else:
-        source = sr.Microphone(sample_rate=16000)
+        source = sr.Microphone(sample_rate=48000)
         
     # Load / Download model
     model = args.model
     if args.model != "large" and not args.non_english:
         model = model + ".en"
-    audio_model = whisperx.load_model(model,"cuda",compute_type="float32")
+    audio_model = whisperx.load_model(model,"cuda",compute_type="int8")
 
     record_timeout = args.record_timeout
     phrase_timeout = args.phrase_timeout
@@ -75,7 +103,7 @@ def main():
     transcription = ['']
     
     with source:
-        recorder.adjust_for_ambient_noise(source)
+        recorder.adjust_for_ambient_noise(source, duration=5)
 
     def record_callback(_, audio:sr.AudioData) -> None:
         """
@@ -93,10 +121,10 @@ def main():
     # Cue the user that we're ready to go.
     print("Model loaded.\n")
     
-    keyboard = Controller()
+    last_transcribed = ""
     last_line= ""
     while True:
-        transcription=['']
+        #transcription=['']
         try:
             now = datetime.utcnow()
             # Pull raw recorded audio from the queue.
@@ -124,33 +152,31 @@ def main():
                     f.write(wav_data.read())
 
                 # Read the transcription.
-                result = audio_model.transcribe(temp_file, batch_size=4)
+                audio = whisperx.load_audio(temp_file)
+                result = audio_model.transcribe(audio, batch_size=4)
                 text = result["segments"]
                 # Read the "text" from the dictionary object
                 if len(text) > 0:
                     text = text[0]["text"]
-                else:
-                    text = ""
-                keyboard.type(text)
-                sleep(0.25)
+                    keyboard_output(text, phrase_complete)
                 # If we detected a pause between recordings, add a new item to our transcripion.
                 # Otherwise edit the existing one.
                 if phrase_complete:
                     transcription.append(text)
                 else:
                     transcription[-1] = text
-                #keyboard.type(text)
-                text=""
                 
                 # Clear the console to reprint the updated transcription.
-                os.system('cls' if os.name=='nt' else 'clear')
-                for line in transcription:
-                    print(line)
+                # os.system('cls' if os.name=='nt' else 'clear')
+                # for line in transcription:
+                #     print(line)
                 # Flush stdout.
-                print('', end='', flush=True)
+                # print('', end='', flush=True)
 
                 # Infinite loops are bad for processors, must sleep.
-                sleep(0.25)
+                sleep(0.2)
+                    
+
         except KeyboardInterrupt:
             break
 

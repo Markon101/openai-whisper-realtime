@@ -1,2 +1,2 @@
 #!/bin/bash
-python transcribe_demo.py --model small --energy_threshold 1250 --phrase_timeout 5 --record_timeout 2 --default_microphone 3
+python transcribe_demo.py --model medium --phrase_timeout 6 --record_timeout 6 --default_microphone 3
